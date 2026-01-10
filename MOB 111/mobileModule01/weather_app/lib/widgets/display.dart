@@ -4,13 +4,32 @@ import 'package:weather_app/screens/currently_screen.dart';
 import 'package:weather_app/screens/today_screen.dart';
 import 'package:weather_app/screens/weekly_screen.dart';
 
-class DisplayWidget extends StatelessWidget {
+class DisplayWidget extends StatefulWidget {
   const DisplayWidget({super.key});
 
   @override
+  State<DisplayWidget> createState() => _DisplayWidgetState();
+}
+
+class _DisplayWidgetState extends State<DisplayWidget> {
+  String location = "";
+  TextEditingController _query = TextEditingController();
+
+  @override
+  void initState()
+  {
+    super.initState();
+    _query = TextEditingController();
+  }
+
+  @override
+  void dispose(){
+    _query.dispose();
+    super.dispose();
+  }
+  @override
   Widget build(BuildContext context) {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-
     return DefaultTabController(
       length: 3,
       child: Scaffold(
@@ -21,6 +40,12 @@ class DisplayWidget extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
               child: SearchBar(
+                controller:_query,
+                onSubmitted: (value) {
+                  setState(() {
+                    location = _query.text.trim();
+                  });
+                },
                 backgroundColor: WidgetStateProperty.all(
                   const Color.fromARGB(255, 139, 142, 147),
                 ),
@@ -50,7 +75,9 @@ class DisplayWidget extends StatelessWidget {
                   IconButton(
                     icon: const Icon(Icons.navigation, color: Colors.white),
                     onPressed: () {
-                      // Add location fetching logic here
+                      setState(() {
+                        location = "Geolocation";
+                      });
                     },
                   ),
                 ],
@@ -60,9 +87,9 @@ class DisplayWidget extends StatelessWidget {
         ),
         body:  TabBarView(
             children: [
-              CurrentWeather(), 
-              TodayWeather(),
-              WeeklyWeather(),
+              CurrentWeather(location: location), 
+              TodayWeather(location: location),
+              WeeklyWeather(location: location),
             ],
           ),
         bottomNavigationBar: const Material(
