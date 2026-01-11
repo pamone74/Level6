@@ -9,7 +9,7 @@ class CurrentWeather extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      child: CenteredText('Current Paris Weather'),
+      child: CenteredText('Current'),
     );
   }
 }

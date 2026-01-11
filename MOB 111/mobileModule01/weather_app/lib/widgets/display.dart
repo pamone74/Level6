@@ -4,9 +4,15 @@ import 'package:weather_app/screens/currently_screen.dart';
 import 'package:weather_app/screens/today_screen.dart';
 import 'package:weather_app/screens/weekly_screen.dart';
 
-class DisplayWidget extends StatelessWidget {
+class DisplayWidget extends StatefulWidget {
   const DisplayWidget({super.key});
 
+  @override
+  State<DisplayWidget> createState() => _DisplayWidgetState();
+}
+
+class _DisplayWidgetState extends State<DisplayWidget> {
+  
   @override
   Widget build(BuildContext context) {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
@@ -51,6 +57,7 @@ class DisplayWidget extends StatelessWidget {
                     icon: const Icon(Icons.navigation, color: Colors.white),
                     onPressed: () {
                       // Add location fetching logic here
+                      
                     },
                   ),
                 ],

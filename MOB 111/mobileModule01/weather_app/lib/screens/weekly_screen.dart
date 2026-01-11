@@ -7,7 +7,7 @@ class WeeklyWeather extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      child: CenteredText('Weekly Paris Weather'),
+      child: CenteredText('Weekly'),
     );
   }
 }

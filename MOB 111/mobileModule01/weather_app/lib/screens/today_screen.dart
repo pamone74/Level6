@@ -6,7 +6,7 @@ class TodayWeather extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      child: CenteredText( 'Today Paris Weather'),
+      child: CenteredText( 'Today '),
     );
   }
 }
