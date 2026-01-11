@@ -12,11 +12,28 @@ class DisplayWidget extends StatefulWidget {
 }
 
 class _DisplayWidgetState extends State<DisplayWidget> {
+<<<<<<< HEAD
   
+=======
+  String location = "";
+  TextEditingController _query = TextEditingController();
+
+  @override
+  void initState()
+  {
+    super.initState();
+    _query = TextEditingController();
+  }
+
+  @override
+  void dispose(){
+    _query.dispose();
+    super.dispose();
+  }
+>>>>>>> 2b6148deb8a6b2e0fc5a8420c2c7801d44b845a0
   @override
   Widget build(BuildContext context) {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-
     return DefaultTabController(
       length: 3,
       child: Scaffold(
@@ -27,6 +44,12 @@ class _DisplayWidgetState extends State<DisplayWidget> {
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
               child: SearchBar(
+                controller:_query,
+                onSubmitted: (value) {
+                  setState(() {
+                    location = _query.text.trim();
+                  });
+                },
                 backgroundColor: WidgetStateProperty.all(
                   const Color.fromARGB(255, 139, 142, 147),
                 ),
@@ -56,8 +79,14 @@ class _DisplayWidgetState extends State<DisplayWidget> {
                   IconButton(
                     icon: const Icon(Icons.navigation, color: Colors.white),
                     onPressed: () {
+<<<<<<< HEAD
                       // Add location fetching logic here
                       
+=======
+                      setState(() {
+                        location = "Geolocation";
+                      });
+>>>>>>> 2b6148deb8a6b2e0fc5a8420c2c7801d44b845a0
                     },
                   ),
                 ],
@@ -67,9 +96,9 @@ class _DisplayWidgetState extends State<DisplayWidget> {
         ),
         body:  TabBarView(
             children: [
-              CurrentWeather(), 
-              TodayWeather(),
-              WeeklyWeather(),
+              CurrentWeather(location: location), 
+              TodayWeather(location: location),
+              WeeklyWeather(location: location),
             ],
           ),
         bottomNavigationBar: const Material(
