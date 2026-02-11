@@ -1,0 +1,314 @@
+import 'dart:convert';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:weather_app/screens/currently_screen.dart';
+import 'package:weather_app/screens/today_screen.dart';
+import 'package:weather_app/screens/weekly_screen.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:geocoding/geocoding.dart';
+import 'package:http/http.dart' as http;
+import 'dart:async';
+import 'package:weather_app/utils/permission_manager.dart';
+
+class DisplayWidget extends StatefulWidget {
+  const DisplayWidget({super.key});
+
+  @override
+  State<DisplayWidget> createState() => _DisplayWidgetState();
+}
+
+class _DisplayWidgetState extends State<DisplayWidget> {
+  Map<String, dynamic>? currentWeatherData;
+  Map<String, dynamic>? todayWeatherData;
+  Map<String, dynamic>? weeklyWeatherData;
+
+  static List<String> listOfLocations = <String>[];
+  String selectedValue = "";
+  String lat = "";
+  String long = "";
+
+  String currently = "";
+  String today = " ";
+  String weekly = "";
+
+  Map<String, dynamic> coordinates = {};
+  Timer? debounce;
+  final LocationSettings locationSettings = const LocationSettings(
+    accuracy: LocationAccuracy.high,
+    distanceFilter: 100,
+  );
+
+  String? errorMessage; // Error message to display
+
+  @override
+  void initState() {
+    super.initState();
+  }
+
+  void onSearchChange(String value) {
+    if (debounce?.isActive ?? false) debounce?.cancel();
+    debounce = Timer(const Duration(milliseconds: 500), () {
+      if (value.isNotEmpty) {
+        listLocations(value);
+      }
+    });
+  }
+
+  Future getWeather(Map<String, dynamic> coordinates, String state) async {
+    try {
+      String endpoint = "";
+      String lat = coordinates['lat'].toString();
+      String long = coordinates['long'].toString();
+
+      dynamic response;
+
+      switch (state.toLowerCase()) {
+        case "today":
+          endpoint =
+              "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$long&hourly=temperature_2m,weathercode,windspeed_10m&forecast_days=1";
+          response = await fectData(endpoint);
+          if (response != "Error") {
+            setState(() {
+              todayWeatherData = response;
+              errorMessage = null;
+            });
+          } else {
+            setState(() {
+              errorMessage = "The service connection is lost please check your internet connection and try again";
+            });
+          }
+          break;
+
+        case "weekly":
+          endpoint =
+              "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$long&daily=temperature_2m_max,temperature_2m_min,weathercode&forecast_days=7";
+          response = await fectData(endpoint);
+          if (response != "Error") {
+            setState(() {
+              weeklyWeatherData = response;
+              errorMessage = null;
+            });
+          } else {
+            setState(() {
+              errorMessage = "The service connection is lost please check your internet connection and try again";
+            });
+          }
+          break;
+
+        default: // currently
+          endpoint =
+              "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$long&current_weather=true";
+          response = await fectData(endpoint);
+          if (response != "Error") {
+            setState(() {
+              currentWeatherData = response['current_weather'];
+              errorMessage = null;
+            });
+          } else {
+            setState(() {
+              errorMessage = "The service connection is lost please check your internet connection and try again";
+            });
+          }
+      }
+    } catch (e) {
+      setState(() {
+        errorMessage = "The service connection is lost please check your internet connection and try again";
+      });
+      debugPrint(e.toString());
+    }
+  }
+
+
+  Future<dynamic> fectData(String endPoint) async {
+    dynamic response = await http.get(Uri.parse(endPoint));
+    // debugPrint("The CODEEE ${response.statusCode.toString()}");
+
+    if (response.statusCode == 200) {
+      dynamic result = await jsonDecode(response.body) as Map<String, dynamic>;
+      // debugPrint("LAST $result");
+      return result;
+    } else {
+      return "Error";
+    }
+  }
+
+  Future listLocations(String address) async {
+    try {
+      String endPoint =
+          "https://geocoding-api.open-meteo.com/v1/search?name=$address&count=10&language=en&format=json";
+      dynamic response = await http.get(Uri.parse(endPoint));
+      if (response.statusCode == 200) {
+        dynamic fin = await jsonDecode(response.body) as Map<String, dynamic>;
+
+        if (fin != null) {
+          final List results = fin['results'] ?? [];
+          final List<String> fetchedLocations = [];
+
+          if (results.isEmpty) {
+            setState(() {
+              errorMessage = "could not find any result for supplied address or coordinates";
+              listOfLocations = [];
+            });
+            return;
+          }
+
+          for (final element in results) {
+            final name = element['name'];
+            final country = element['country'];
+            final region =
+                element['admin1'] ??
+                element['admin2'] ??
+                element['admin1'] ??
+                '';
+            coordinates['lat'] = element["latitude"];
+            coordinates['long'] = element["longitude"];
+            fetchedLocations.add("$name $region $country");
+          }
+          setState(() {
+            listOfLocations = fetchedLocations;
+            errorMessage = null;
+          });
+        }
+      } else {
+        setState(() {
+          errorMessage = "The service connection is lost please check your internet connection and try again";
+        });
+      }
+    } catch (e) {
+      setState(() {
+        errorMessage = "The service connection is lost please check your internet connection and try again";
+      });
+      print(e);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DefaultTabController(
+      length: 3,
+      child: Scaffold(
+        appBar: AppBar(
+          backgroundColor: const Color.fromARGB(255, 139, 142, 147),
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(50),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+              child: Row(
+                children: [
+                  Icon(Icons.search, color: Colors.white),
+                  Expanded(
+                    child: Autocomplete(
+                      optionsBuilder: (TextEditingValue textEditor) {
+                        listLocations(textEditor.text);
+                        if (textEditor.text.isEmpty ||
+                            textEditor.text.isEmpty == ' ') {
+                          return const Iterable<String>.empty();
+                        }
+                        return listOfLocations.where((String option) {
+                          listLocations(textEditor.text);
+                          return option.toLowerCase().contains(
+                            textEditor.text.toLowerCase(),
+                          );
+                        });
+                      },
+                      onSelected: (String selection) async {
+                        debugPrint("You have Selected $selection");
+                        debugPrint(
+                          "The coordinates fot the value selected is $coordinates",
+                        );
+                        setState(() {
+                          selectedValue = selection;
+                        });
+                        // Fetch all weather data for all tabs
+                        await getWeather(coordinates, "currently");
+                        await getWeather(coordinates, "today");
+                        await getWeather(coordinates, "weekly");
+                      },
+                    ),
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.navigation, color: Colors.white),
+                    onPressed: () async {
+                      await Permission.location.request();
+                      try {
+                        final position = await getCurrentLocation();
+                        final double latitude = position.latitude;
+                        final double longitude = position.longitude;
+                        // Reverse geocode to get place name
+                        String placeName = '';
+                        try {
+                          final placemarks = await placemarkFromCoordinates(latitude, longitude);
+                          if (placemarks.isNotEmpty) {
+                            final p = placemarks.first;
+                            placeName = [p.locality, p.administrativeArea, p.country].where((e) => e != null && e.isNotEmpty).join(' ');
+                          }
+                        } catch (e) {
+                          placeName = 'Unknown Location';
+                        }
+                        setState(() {
+                          coordinates['lat'] = latitude;
+                          coordinates['long'] = longitude;
+                          selectedValue = placeName;
+                        });
+                        await getWeather({'lat': latitude, 'long': longitude}, "currently");
+                        await getWeather({'lat': latitude, 'long': longitude}, "today");
+                        await getWeather({'lat': latitude, 'long': longitude}, "weekly");
+                      } catch (e) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Failed to get location: $e')),
+                        );
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        body: errorMessage != null
+            ? Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Text(
+                    errorMessage!,
+                    style: const TextStyle(color: Colors.red, fontSize: 18),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              )
+            : TabBarView(
+                children: [
+                  CurrentWeather(
+                    location: selectedValue,
+                    weatherData: currentWeatherData,
+                  ),
+                  TodayWeather(
+                    location: selectedValue,
+                    weatherData: todayWeatherData,
+                  ),
+                  WeeklyWeather(
+                    location: selectedValue,
+                    weatherData: weeklyWeatherData,
+                  ),
+                ],
+              ),
+
+        bottomNavigationBar: const Material(
+          color: Colors.white,
+          child: TabBar(
+            labelColor: Colors.blue,
+            unselectedLabelColor: Colors.grey,
+            indicatorColor: Colors.blue,
+            tabs: [
+              Tab(icon: Icon(Icons.thermostat), text: 'Currently'),
+              Tab(icon: Icon(Icons.today), text: 'Today'),
+              Tab(icon: Icon(Icons.calendar_today), text: 'Weekly'),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
