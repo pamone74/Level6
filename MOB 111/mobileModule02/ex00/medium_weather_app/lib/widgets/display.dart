@@ -16,9 +16,11 @@ class DisplayWidget extends StatefulWidget {
 
 class _DisplayWidgetState extends State<DisplayWidget> {
   final TextEditingController _textFieldController = TextEditingController();
-  String currentAddress = "Fecthing Location";
+  String currentAddress = "Fetching Location";
   String buttonPressed = "";
   bool processRunning = false;
+
+  bool locationDenied = false;
 
   final LocationSettings locationSettings = const LocationSettings(
     accuracy: LocationAccuracy.high,
@@ -28,46 +30,50 @@ class _DisplayWidgetState extends State<DisplayWidget> {
   @override
   void initState() {
     super.initState();
+    // Ask for location and update coordinates on startup
+    fetchLocation();
   }
 
   String permissionError() {
-    return "Geolocation is not available, please enable in your app setting";
+    return "Location permission denied. Please enter a city name to get the weather.";
   }
 
   Future<String> fetchLocation() async {
     late Position currentPosition;
-    if (await Geolocator.isLocationServiceEnabled() &&
-        await Permission.location.isGranted) {
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    PermissionStatus permission = await Permission.location.status;
+
+    if (!serviceEnabled) {
+      if (mounted) {
+        setState(() {
+          currentAddress = permissionError();
+          locationDenied = true;
+        });
+      }
+      return currentAddress;
+    }
+
+    if (permission == PermissionStatus.denied || permission == PermissionStatus.restricted) {
+      permission = await Permission.location.request();
+    }
+
+    if (permission == PermissionStatus.granted) {
       currentPosition = await Geolocator.getCurrentPosition(
         locationSettings: locationSettings,
       );
       if (mounted) {
         setState(() {
-          currentAddress =
-              "${currentPosition.latitude} ${currentPosition.longitude}";
-          // GetActualAddress(currentPosition.latitude.toString(), currentPosition.longitude.toString());
+          currentAddress = "${currentPosition.latitude} ${currentPosition.longitude}";
+          locationDenied = false;
         });
       }
-    } else if (!await Geolocator.isLocationServiceEnabled() ||
-        await Permission.location.isDenied ||
-        await Permission.location.isPermanentlyDenied) {
-      currentAddress = permissionError();
     } else {
-      if (!processRunning) {
-        processRunning = true;
-        PermissionStatus permission = await Permission.location.request();
-        if (permission.isGranted) {
-          fetchLocation();
-        } else if (permission.isDenied || permission.isPermanentlyDenied) {
+      if (mounted) {
+        setState(() {
           currentAddress = permissionError();
-        }
+          locationDenied = true;
+        });
       }
-      processRunning = false;
-    }
-
-    // This is last edge case when the await calls fails to check for the permission of the location
-    if (currentAddress == "Fetching Location") {
-      currentAddress = permissionError();
     }
     return currentAddress;
   }
@@ -89,15 +95,47 @@ class _DisplayWidgetState extends State<DisplayWidget> {
     return actualAddress;
   }
 
-  Widget GetLocation(Future<void>? fnc, String text) {
-    return Center(
-      child: Column(children: [Text(text, style: TextStyle(fontSize: 14))]),
-    );
-  }
+  // Widget displayCurrentCoordinates() {
+  //   if (locationDenied) {
+  //     return Container(
+  //       width: double.infinity,
+  //       color: Colors.red[100],
+  //       padding: const EdgeInsets.all(12),
+  //       child: Row(
+  //         children: [
+  //           const Icon(Icons.warning, color: Colors.red),
+  //           const SizedBox(width: 8),
+  //           Expanded(
+  //             child: Text(
+  //               permissionError(),
+  //               style: const TextStyle(fontSize: 15, color: Colors.red, fontWeight: FontWeight.bold),
+  //             ),
+  //           ),
+  //         ],
+  //       ),
+  //     );
+  //   // } else {
+  //   //   return Center(
+  //   //     child: Column(
+  //   //       mainAxisAlignment: MainAxisAlignment.center,
+  //   //       children: [
+  //   //         const Text(
+  //   //           'Current Coordinates:',
+  //   //           style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+  //   //         ),
+  //   //         const SizedBox(height: 8),
+  //   //         Text(
+  //   //           currentAddress,
+  //   //           style: const TextStyle(fontSize: 16, color: Colors.blueAccent),
+  //   //         ),
+  //   //       ],
+  //   //     ),
+  //   //   );
+  //   }
+  // }
 
   @override
   Widget build(BuildContext context) {
-    GetLocation(fetchLocation(), currentAddress);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     return DefaultTabController(
       length: 3,
@@ -141,25 +179,10 @@ class _DisplayWidgetState extends State<DisplayWidget> {
                       ),
                     ),
                   ),
-                  FutureBuilder(
-                    future: fetchLocation(),
-                    builder: (context, asyncSnapshot) {
-                      return IconButton(
-                        icon: const Icon(Icons.navigation, color: Colors.white),
-                        onPressed: () {
-                          if (mounted) {
-                            setState(() {
-                              if (!asyncSnapshot.hasError) {
-                                if (asyncSnapshot.hasData) {
-                                  buttonPressed = asyncSnapshot.data.toString();
-                                } 
-                              }else {
-                                  buttonPressed = "Something Wrong happened";
-                                }
-                            });
-                          }
-                        },
-                      );
+                  IconButton(
+                    icon: const Icon(Icons.navigation, color: Colors.white),
+                    onPressed: () {
+                      fetchLocation();
                     },
                   ),
                 ],
@@ -167,11 +190,18 @@ class _DisplayWidgetState extends State<DisplayWidget> {
             ),
           ),
         ),
-        body: TabBarView(
+        body: Column(
           children: [
-            CurrentWeather(location: currentAddress.toString()),
-            TodayWeather(location: buttonPressed),
-            WeeklyWeather(location: buttonPressed),
+            // displayCurrentCoordinates(),
+            Expanded(
+              child: TabBarView(
+                children: [
+                  CurrentWeather(location: currentAddress.toString()),
+                  TodayWeather(location: buttonPressed),
+                  WeeklyWeather(location: buttonPressed),
+                ],
+              ),
+            ),
           ],
         ),
         bottomNavigationBar: const Material(
