@@ -25,6 +25,7 @@ class _DisplayWidgetState extends State<DisplayWidget> {
   Map<String, dynamic>? currentWeatherData;
   Map<String, dynamic>? todayWeatherData;
   Map<String, dynamic>? weeklyWeatherData;
+  String? errorMessage;
 
   static List<String> listOfLocations = <String>[];
   String selectedValue = "";
@@ -47,6 +48,7 @@ class _DisplayWidgetState extends State<DisplayWidget> {
     super.initState();
   }
 
+  // Debounced search for locations
   void onSearchChange(String value) {
     if (debounce?.isActive ?? false) debounce?.cancel();
     debounce = Timer(const Duration(milliseconds: 500), () {
@@ -56,63 +58,75 @@ class _DisplayWidgetState extends State<DisplayWidget> {
     });
   }
 
-  Future getWeather(Map<String, dynamic> coordinates, String state) async {
-  try {
-    String endpoint = "";
-    String lat = coordinates['lat'].toString();
-    String long = coordinates['long'].toString();
-
-    dynamic response;
-
-    switch (state.toLowerCase()) {
-      case "today":
-        endpoint =
-            "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$long&hourly=temperature_2m,weathercode,windspeed_10m&forecast_days=1";
-        response = await fectData(endpoint);
-        if (response != "Error") {
-          setState(() {
-            todayWeatherData = response;
-          });
-        }
-        break;
-
-      case "weekly":
-        endpoint =
-            "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$long&daily=temperature_2m_max,temperature_2m_min,weathercode&forecast_days=7";
-        response = await fectData(endpoint);
-        if (response != "Error") {
-          setState(() {
-            weeklyWeatherData = response;
-          });
-        }
-        break;
-
-      default: // currently
-        endpoint =
-            "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$long&current_weather=true";
-        response = await fectData(endpoint);
-        if (response != "Error") {
-          setState(() {
-            currentWeatherData = response['current_weather'];
-          });
-        }
-    }
-  } catch (e) {
-    debugPrint(e.toString());
-  }
-}
-
-
   Future<dynamic> fectData(String endPoint) async {
-    dynamic response = await http.get(Uri.parse(endPoint));
-    // debugPrint("The CODEEE ${response.statusCode.toString()}");
-
-    if (response.statusCode == 200) {
-      dynamic result = await jsonDecode(response.body) as Map<String, dynamic>;
-      // debugPrint("LAST $result");
-      return result;
-    } else {
+    try {
+      final response = await http.get(Uri.parse(endPoint));
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body) as Map<String, dynamic>;
+      } else if (response.statusCode == 429) {
+        setState(() {
+          errorMessage = "API limit reached. Please try again later.";
+          currentWeatherData = null;
+          todayWeatherData = null;
+          weeklyWeatherData = null;
+        });
+        return "Error429";
+      } else {
+        setState(() {
+          errorMessage = "Error: ${response.statusCode} ${response.reasonPhrase}";
+          currentWeatherData = null;
+          todayWeatherData = null;
+          weeklyWeatherData = null;
+        });
+        return "Error";
+      }
+    } catch (e) {
+      setState(() {
+        errorMessage = "Network error: $e";
+        currentWeatherData = null;
+        todayWeatherData = null;
+        weeklyWeatherData = null;
+      });
       return "Error";
+    }
+  }
+
+  Future<void> getAllWeather(Map<String, dynamic> coordinates) async {
+    try {
+      String lat = coordinates['lat'].toString();
+      String long = coordinates['long'].toString();
+
+      setState(() {
+        errorMessage = null;
+        currentWeatherData = null;
+        todayWeatherData = null;
+        weeklyWeatherData = null;
+      });
+
+      final currentFuture = fectData("https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$long&current_weather=true");
+      final todayFuture = fectData("https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$long&hourly=temperature_2m,weathercode,windspeed_10m&forecast_days=1");
+      final weeklyFuture = fectData("https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$long&daily=temperature_2m_max,temperature_2m_min,weathercode&forecast_days=7");
+
+      final results = await Future.wait([currentFuture, todayFuture, weeklyFuture]);
+
+      // If any error, don't update data (already cleared above)
+      if (results.contains("Error429") || results.contains("Error")) {
+        return;
+      }
+
+      setState(() {
+        errorMessage = null;
+        currentWeatherData = results[0]['current_weather'];
+        todayWeatherData = results[1];
+        weeklyWeatherData = results[2];
+      });
+    } catch (e) {
+      setState(() {
+        errorMessage = "Unexpected error: $e";
+        currentWeatherData = null;
+        todayWeatherData = null;
+        weeklyWeatherData = null;
+      });
     }
   }
 
@@ -169,30 +183,27 @@ class _DisplayWidgetState extends State<DisplayWidget> {
                   Expanded(
                     child: Autocomplete(
                       optionsBuilder: (TextEditingValue textEditor) {
-                        listLocations(textEditor.text);
-                        if (textEditor.text.isEmpty ||
-                            textEditor.text.isEmpty == ' ') {
+                        // Debounced search for locations
+                        if (debounce?.isActive ?? false) debounce?.cancel();
+                        debounce = Timer(const Duration(milliseconds: 500), () {
+                          if (textEditor.text.isNotEmpty) {
+                            listLocations(textEditor.text);
+                          }
+                        });
+                        if (textEditor.text.isEmpty || textEditor.text.trim().isEmpty) {
                           return const Iterable<String>.empty();
                         }
                         return listOfLocations.where((String option) {
-                          listLocations(textEditor.text);
-                          return option.toLowerCase().contains(
-                            textEditor.text.toLowerCase(),
-                          );
+                          return option.toLowerCase().contains(textEditor.text.toLowerCase());
                         });
                       },
                       onSelected: (String selection) async {
                         debugPrint("You have Selected $selection");
-                        debugPrint(
-                          "The coordinates fot the value selected is $coordinates",
-                        );
+                        debugPrint("The coordinates for the value selected is $coordinates");
                         setState(() {
                           selectedValue = selection;
                         });
-                        // Fetch all weather data for all tabs
-                        await getWeather(coordinates, "currently");
-                        await getWeather(coordinates, "today");
-                        await getWeather(coordinates, "weekly");
+                        await getAllWeather(coordinates);
                       },
                     ),
                   ),
@@ -220,9 +231,7 @@ class _DisplayWidgetState extends State<DisplayWidget> {
                           coordinates['long'] = longitude;
                           selectedValue = placeName;
                         });
-                        await getWeather({'lat': latitude, 'long': longitude}, "currently");
-                        await getWeather({'lat': latitude, 'long': longitude}, "today");
-                        await getWeather({'lat': latitude, 'long': longitude}, "weekly");
+                        await getAllWeather({'lat': latitude, 'long': longitude});
                       } catch (e) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(content: Text('Failed to get location: $e')),
@@ -235,23 +244,35 @@ class _DisplayWidgetState extends State<DisplayWidget> {
             ),
           ),
         ),
-        body: TabBarView(
-  children: [
-    CurrentWeather(
-      location: selectedValue,
-      weatherData: currentWeatherData,
-    ),
-    TodayWeather(
-      location: selectedValue,
-      weatherData: todayWeatherData,
-    ),
-    WeeklyWeather(
-      location: selectedValue,
-      weatherData: weeklyWeatherData,
-    ),
-  ],
-),
-
+        body: Column(
+          children: [
+            if (errorMessage != null)
+              Container(
+                width: double.infinity,
+                color: Colors.red[100],
+                padding: const EdgeInsets.all(8),
+                child: Text(errorMessage!, style: const TextStyle(color: Colors.red)),
+              ),
+            Expanded(
+              child: TabBarView(
+                children: [
+                  CurrentWeather(
+                    location: selectedValue,
+                    weatherData: currentWeatherData,
+                  ),
+                  TodayWeather(
+                    location: selectedValue,
+                    weatherData: todayWeatherData,
+                  ),
+                  WeeklyWeather(
+                    location: selectedValue,
+                    weatherData: weeklyWeatherData,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
         bottomNavigationBar: const Material(
           color: Colors.white,
           child: TabBar(
