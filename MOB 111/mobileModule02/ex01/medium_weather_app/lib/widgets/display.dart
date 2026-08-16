@@ -1,17 +1,13 @@
-import 'dart:convert';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:weather_app/data/models.dart';
 import 'package:weather_app/screens/currently_screen.dart';
 import 'package:weather_app/screens/today_screen.dart';
 import 'package:weather_app/screens/weekly_screen.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:geocoding/geocoding.dart';
-import 'package:geocoding/geocoding.dart';
-import 'package:weather_app/widgets/module.dart';
-import 'package:http/http.dart' as http;
-import 'dart:async';
+import 'package:weather_app/services/device_location_service.dart';
+import 'package:weather_app/services/location_search_service.dart';
+import 'package:weather_app/widgets/suggestion_list.dart';
 
 class DisplayWidget extends StatefulWidget {
   const DisplayWidget({super.key});
@@ -21,64 +17,146 @@ class DisplayWidget extends StatefulWidget {
 }
 
 class _DisplayWidgetState extends State<DisplayWidget> {
-  static List<String> listOfLocations = <String>[];
-  String selectedValue = "";
-  Timer? debounce;
-  final LocationSettings locationSettings = const LocationSettings(
-    accuracy: LocationAccuracy.high,
-    distanceFilter: 100,
-  );
+  static const _debounceDuration = Duration(milliseconds: 400);
+
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocus = FocusNode();
+  final LocationSearchService _searchService = LocationSearchService();
+  final DeviceLocationService _deviceLocationService =
+      const DeviceLocationService();
+
+  Timer? _debounce;
+  int _requestGeneration = 0;
+  List<LocationResult> _suggestions = const [];
+  LocationResult? _selectedLocation;
+  String? _searchError;
+  bool _isSearching = false;
 
   @override
   void initState() {
     super.initState();
+    _useDeviceLocation();
   }
 
-  void onSearchChange(String value) {
-    if (debounce?.isActive ?? false) debounce?.cancel();
-    debounce = Timer(const Duration(milliseconds: 500), () {
-      if (value.isNotEmpty) {
-        listLocations(value);
-      }
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _searchController.dispose();
+    _searchFocus.dispose();
+    _searchService.dispose();
+    super.dispose();
+  }
+
+  void _onQueryChanged(String value) {
+    _debounce?.cancel();
+    final generation = ++_requestGeneration;
+    final query = value.trim();
+    setState(() {
+      _suggestions = const [];
+      _searchError = null;
+      _isSearching = false;
+    });
+    if (query.isEmpty) return;
+    _debounce = Timer(_debounceDuration, () {
+      _search(query, generation: generation);
     });
   }
 
-  Future listLocations(String address) async {
+  void _submitSearch() {
+    _debounce?.cancel();
+    final query = _searchController.text.trim();
+    final generation = ++_requestGeneration;
+    if (query.isEmpty) {
+      setState(() {
+        _suggestions = const [];
+        _searchError = 'Enter a city or location name.';
+        _isSearching = false;
+      });
+      return;
+    }
+    _search(query, generation: generation, selectFirstResult: true);
+  }
+
+  Future<void> _search(
+    String query, {
+    required int generation,
+    bool selectFirstResult = false,
+  }) async {
+    if (!mounted || generation != _requestGeneration) return;
+    setState(() {
+      _isSearching = true;
+      _searchError = null;
+    });
     try {
-      String endPoint =
-          "https://geocoding-api.open-meteo.com/v1/search?name=$address&count=10&language=en&format=json";
-      dynamic response = await http.get(Uri.parse(endPoint));
-      if (response.statusCode == 200) {
-        dynamic fin = await jsonDecode(response.body) as Map<String, dynamic>;
-
-        if (fin != null) {
-          final List results = fin['results'] ?? [];
-          final List<String> fetchedLocations = [];
-
-          for (final element in results) {
-            final name = element['name'];
-            final country = element['country'];
-            final region =
-                element['admin1'] ??
-                element['admin2'] ??
-                element['admin1'] ??
-                '';
-            fetchedLocations.add("$name $region $country");
-          }
-          setState(() {
-            listOfLocations = fetchedLocations;
-          });
-        }
-      } else {
-        print("Sometthing went wrong");
+      final results = await _searchService.search(query);
+      if (!mounted || generation != _requestGeneration) return;
+      if (results.isEmpty) {
+        setState(() {
+          _suggestions = const [];
+          _searchError = 'No locations found for "$query".';
+          _isSearching = false;
+        });
+        return;
       }
-    } catch (e) {
-      print(e);
+      if (selectFirstResult) {
+        _selectLocation(results.first);
+        return;
+      }
+      setState(() {
+        _suggestions = results;
+        _isSearching = false;
+      });
+    } on LocationSearchException {
+      if (!mounted || generation != _requestGeneration) return;
+      setState(() {
+        _suggestions = const [];
+        _searchError = 'Unable to search right now. Check your connection.';
+        _isSearching = false;
+      });
+    }
+  }
+
+  void _selectLocation(LocationResult location) {
+    _debounce?.cancel();
+    _requestGeneration++;
+    _searchController.text = location.displayName;
+    _searchController.selection = TextSelection.collapsed(
+      offset: _searchController.text.length,
+    );
+    _searchFocus.unfocus();
+    setState(() {
+      _selectedLocation = location;
+      _suggestions = const [];
+      _searchError = null;
+      _isSearching = false;
+    });
+  }
+
+  Future<void> _useDeviceLocation() async {
+    _debounce?.cancel();
+    final generation = ++_requestGeneration;
+    _searchFocus.unfocus();
+    setState(() {
+      _suggestions = const [];
+      _searchError = null;
+      _isSearching = true;
+    });
+    try {
+      final location = await _deviceLocationService.getCurrentLocation();
+      if (!mounted || generation != _requestGeneration) return;
+      _selectLocation(location);
+    } on DeviceLocationException catch (error) {
+      if (!mounted || generation != _requestGeneration) return;
+      setState(() {
+        _searchError = error.message;
+        _isSearching = false;
+      });
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final selectedLabel = _selectedLocation?.displayName ?? '';
     return DefaultTabController(
       length: 3,
       child: Scaffold(
@@ -87,45 +165,71 @@ class _DisplayWidgetState extends State<DisplayWidget> {
           bottom: PreferredSize(
             preferredSize: const Size.fromHeight(50),
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+              padding: const EdgeInsets.fromLTRB(8, 0, 8, 10),
               child: Row(
                 children: [
-                  Icon(Icons.search, color: Colors.white),
-                  // SizedBox(height: 30,),
+                  IconButton(
+                    tooltip: 'Search',
+                    onPressed: _submitSearch,
+                    icon: const Icon(Icons.search, color: Colors.white),
+                  ),
                   Expanded(
-                    child: Autocomplete(
-                      // key: ValueKey(listOfLocations.length),
-                      optionsBuilder: (TextEditingValue textEditor) {
-                        listLocations(textEditor.text);
-                        if (textEditor.text.isEmpty ||
-                            textEditor.text.isEmpty == ' ') {
-                          return const Iterable<String>.empty();
-                        }
-                        return listOfLocations.where((String option) {
-                          listLocations(textEditor.text);
-                          return option.toLowerCase().contains(
-                            textEditor.text.toLowerCase(),
-                          );
-                        });
-                      },
-                      onSelected: (String selection) {
-                        
-                        debugPrint("You have Selected $selection");
-                        selectedValue = selection;
-                      },
+                    child: TextField(
+                      controller: _searchController,
+                      focusNode: _searchFocus,
+                      onChanged: _onQueryChanged,
+                      onSubmitted: (_) => _submitSearch(),
+                      textInputAction: TextInputAction.search,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: const InputDecoration(
+                        border: InputBorder.none,
+                        hintText: 'Search for a city...',
+                        hintStyle: TextStyle(color: Colors.white70),
+                      ),
                     ),
                   ),
-                  Icon(Icons.navigation, color: Colors.white),
+                  IconButton(
+                    tooltip: 'Use current location',
+                    onPressed: _useDeviceLocation,
+                    icon: const Icon(Icons.navigation, color: Colors.white),
+                  ),
                 ],
               ),
             ),
           ),
         ),
-        body: TabBarView(
+        body: Column(
           children: [
-            CurrentWeather(location: selectedValue),
-            TodayWeather(location: ["TEST"]),
-            WeeklyWeather(location: ["List"].toString()),
+            if (_isSearching) const LinearProgressIndicator(),
+            if (_searchError case final error?)
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text(
+                  error,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            if (_suggestions.isNotEmpty)
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 260),
+                child: Material(
+                  elevation: 3,
+                  child: SuggestionList(
+                    suggestions: _suggestions,
+                    onTap: _selectLocation,
+                  ),
+                ),
+              ),
+            Expanded(
+              child: TabBarView(
+                children: [
+                  CurrentWeather(location: selectedLabel),
+                  TodayWeather(location: selectedLabel),
+                  WeeklyWeather(location: selectedLabel),
+                ],
+              ),
+            ),
           ],
         ),
         bottomNavigationBar: const Material(

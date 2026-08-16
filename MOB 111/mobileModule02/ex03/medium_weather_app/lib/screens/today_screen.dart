@@ -1,60 +1,96 @@
 import 'package:flutter/material.dart';
+import 'package:weather_app/data/models.dart';
+import 'package:weather_app/data/weather_code.dart';
+import 'package:weather_app/widgets/location_header.dart';
 
 class TodayWeather extends StatelessWidget {
-  final String location;
-  final Map<String, dynamic>? weatherData;
-  const TodayWeather({
-    super.key,
-    required this.location,
-    required this.weatherData,
+  const TodayWeather({super.key, required this.weather});
+  final WeatherData weather;
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      Padding(
+        padding: const EdgeInsets.all(16),
+        child: LocationHeader(location: weather.location),
+      ),
+      const _HourlyRow(
+        time: 'TIME',
+        temperature: 'TEMP',
+        description: 'WEATHER',
+        windSpeed: 'WIND',
+        isHeader: true,
+      ),
+      const Divider(height: 1),
+      Expanded(
+        child: ListView.separated(
+          itemCount: weather.today.length,
+          separatorBuilder: (_, _) => const Divider(height: 1),
+          itemBuilder: (context, index) {
+            final hour = weather.today[index];
+            return _HourlyRow(
+              time:
+                  '${hour.time.hour.toString().padLeft(2, '0')}:${hour.time.minute.toString().padLeft(2, '0')}',
+              temperature: '${hour.temperature.toStringAsFixed(1)} °C',
+              description: WeatherCode.description(hour.weatherCode),
+              windSpeed: '${hour.windSpeed.toStringAsFixed(1)} km/h',
+            );
+          },
+        ),
+      ),
+    ],
+  );
+}
+
+class _HourlyRow extends StatelessWidget {
+  const _HourlyRow({
+    required this.time,
+    required this.temperature,
+    required this.description,
+    required this.windSpeed,
+    this.isHeader = false,
   });
-
-  Widget buildLocationHeader() {
-    final parts = location.split(' ');
-    final city = parts.isNotEmpty ? parts[0] : '';
-    final region = parts.length > 2 ? parts[1] : '';
-    final country = parts.length > 2 ? parts.sublist(2).join(' ') : (parts.length > 1 ? parts[1] : '');
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Text(city, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
-        if (region.isNotEmpty) Text(region, style: const TextStyle(fontSize: 20)),
-        if (country.isNotEmpty) Text(country, style: const TextStyle(fontSize: 20)),
-      ],
-    );
-  }
-
+  final String time;
+  final String temperature;
+  final String description;
+  final String windSpeed;
+  final bool isHeader;
   @override
   Widget build(BuildContext context) {
-    if (weatherData == null) return Center(child: Text("No data yet"));
-    return Column(
-      children: [
-        const SizedBox(height: 16),
-        buildLocationHeader(),
-        const SizedBox(height: 16),
-        Expanded(
-          child: ListView.builder(
-            itemCount: weatherData!['hourly']['time'].length,
-            itemBuilder: (context, index) {
-              final timeRaw = weatherData!['hourly']['time'][index];
-              final temp = weatherData!['hourly']['temperature_2m'][index];
-              final wind = weatherData!['hourly']['windspeed_10m'][index];
-              // Format time as HH:MM
-              final time = timeRaw.length >= 16 ? timeRaw.substring(11, 16) : timeRaw;
-              return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 16),
-                child: Row(
-                  children: [
-                    SizedBox(width: 60, child: Text(time, textAlign: TextAlign.left)),
-                    Expanded(child: Center(child: Text("$temp°C"))),
-                    SizedBox(width: 80, child: Text("$wind km/h", textAlign: TextAlign.right)),
-                  ],
-                ),
-              );
-            },
+    final style = isHeader
+        ? Theme.of(
+            context,
+          ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.bold)
+        : Theme.of(context).textTheme.bodyMedium;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      child: Row(
+        children: [
+          Expanded(flex: 2, child: Text(time, style: style)),
+          Expanded(
+            flex: 2,
+            child: Text(temperature, style: style, textAlign: TextAlign.center),
           ),
-        ),
-      ],
+          Expanded(
+            flex: 4,
+            child: Text(
+              description,
+              style: style,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Text(
+              windSpeed,
+              style: style,
+              textAlign: TextAlign.end,
+              maxLines: 2,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

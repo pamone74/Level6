@@ -3,9 +3,7 @@ import 'widgets/display.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const MaterialApp(
-    debugShowCheckedModeBanner: false,
-    home: DisplayWidget(),
-  ));
+  runApp(
+    const MaterialApp(debugShowCheckedModeBanner: false, home: DisplayWidget()),
+  );
 }
-

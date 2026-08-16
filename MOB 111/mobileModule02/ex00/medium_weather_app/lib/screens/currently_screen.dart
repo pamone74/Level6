@@ -1,22 +1,12 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
-
 import 'package:weather_app/widgets/global.dart';
 
 class CurrentWeather extends StatelessWidget {
-  final String location;
   const CurrentWeather({super.key, required this.location});
+  final String location;
 
   @override
-  Widget build(BuildContext context) {
-
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Text("Currently", style: HeadingStyle,),
-        Text(location, style: bodyStyle,textAlign: TextAlign.center,)
-      ],
-    );
-  }
+  Widget build(BuildContext context) => Center(
+    child: Text(location, style: bodyStyle, textAlign: TextAlign.center),
+  );
 }

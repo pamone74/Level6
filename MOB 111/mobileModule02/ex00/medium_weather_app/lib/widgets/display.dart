@@ -3,9 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:weather_app/screens/currently_screen.dart';
 import 'package:weather_app/screens/today_screen.dart';
 import 'package:weather_app/screens/weekly_screen.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:geocoding/geocoding.dart';
+import 'package:weather_app/services/location_service.dart';
 
 class DisplayWidget extends StatefulWidget {
   const DisplayWidget({super.key});
@@ -16,123 +14,42 @@ class DisplayWidget extends StatefulWidget {
 
 class _DisplayWidgetState extends State<DisplayWidget> {
   final TextEditingController _textFieldController = TextEditingController();
-  String currentAddress = "Fetching Location";
-  String buttonPressed = "";
-  bool processRunning = false;
-
-  bool locationDenied = false;
-
-  final LocationSettings locationSettings = const LocationSettings(
-    accuracy: LocationAccuracy.high,
-    distanceFilter: 100,
-  );
+  final LocationService _locationService = const LocationService();
+  String currentAddress = 'Fetching location...';
 
   @override
   void initState() {
     super.initState();
-    // Ask for location and update coordinates on startup
-    fetchLocation();
+    _fetchLocation();
   }
 
-  String permissionError() {
-    return "Location permission denied. Please enter a city name to get the weather.";
+  @override
+  void dispose() {
+    _textFieldController.dispose();
+    super.dispose();
   }
 
-  Future<String> fetchLocation() async {
-    late Position currentPosition;
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    PermissionStatus permission = await Permission.location.status;
-
-    if (!serviceEnabled) {
-      if (mounted) {
-        setState(() {
-          currentAddress = permissionError();
-          locationDenied = true;
-        });
-      }
-      return currentAddress;
-    }
-
-    if (permission == PermissionStatus.denied || permission == PermissionStatus.restricted) {
-      permission = await Permission.location.request();
-    }
-
-    if (permission == PermissionStatus.granted) {
-      currentPosition = await Geolocator.getCurrentPosition(
-        locationSettings: locationSettings,
-      );
-      if (mounted) {
-        setState(() {
-          currentAddress = "${currentPosition.latitude} ${currentPosition.longitude}";
-          locationDenied = false;
-        });
-      }
-    } else {
-      if (mounted) {
-        setState(() {
-          currentAddress = permissionError();
-          locationDenied = true;
-        });
-      }
-    }
-    return currentAddress;
+  Future<void> _fetchLocation() async {
+    setState(() => currentAddress = 'Fetching location...');
+    final result = await _locationService.getCurrentLocation();
+    if (!mounted) return;
+    setState(() {
+      currentAddress = switch (result.type) {
+        LocationResultType.serviceDisabled =>
+          'Location services are disabled. Turn on GPS or enter a city above.',
+        LocationResultType.permissionDenied =>
+          'Location permission was denied. You can still enter a city above.',
+        LocationResultType.permissionDeniedForever =>
+          'Location permission is permanently denied. Enable it in settings or enter a city above.',
+        LocationResultType.permissionGranted =>
+          '${result.displayName!}\n'
+              'Latitude: ${result.position!.latitude}\n'
+              'Longitude: ${result.position!.longitude}',
+        LocationResultType.retrievalError =>
+          'Could not retrieve your location. Check GPS and try again.',
+      };
+    });
   }
-
-  // Get full address
-  Future<String> GetActualAddress(String latitude, String longitude) async {
-    String actualAddress;
-    try {
-      List<Placemark> placemarks = await placemarkFromCoordinates(
-        double.parse(latitude),
-        double.parse(longitude),
-      );
-      Placemark place = placemarks[0];
-      actualAddress = "${place.locality}, ${place.country}";
-    } catch (e) {
-      actualAddress = "Error in fetching location";
-    }
-
-    return actualAddress;
-  }
-
-  // Widget displayCurrentCoordinates() {
-  //   if (locationDenied) {
-  //     return Container(
-  //       width: double.infinity,
-  //       color: Colors.red[100],
-  //       padding: const EdgeInsets.all(12),
-  //       child: Row(
-  //         children: [
-  //           const Icon(Icons.warning, color: Colors.red),
-  //           const SizedBox(width: 8),
-  //           Expanded(
-  //             child: Text(
-  //               permissionError(),
-  //               style: const TextStyle(fontSize: 15, color: Colors.red, fontWeight: FontWeight.bold),
-  //             ),
-  //           ),
-  //         ],
-  //       ),
-  //     );
-  //   // } else {
-  //   //   return Center(
-  //   //     child: Column(
-  //   //       mainAxisAlignment: MainAxisAlignment.center,
-  //   //       children: [
-  //   //         const Text(
-  //   //           'Current Coordinates:',
-  //   //           style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-  //   //         ),
-  //   //         const SizedBox(height: 8),
-  //   //         Text(
-  //   //           currentAddress,
-  //   //           style: const TextStyle(fontSize: 16, color: Colors.blueAccent),
-  //   //         ),
-  //   //       ],
-  //   //     ),
-  //   //   );
-  //   }
-  // }
 
   @override
   Widget build(BuildContext context) {
@@ -148,11 +65,6 @@ class _DisplayWidgetState extends State<DisplayWidget> {
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
               child: SearchBar(
                 controller: _textFieldController,
-                onSubmitted: (value) {
-                  setState(() {
-                    // location = _textFieldController.text.toString();
-                  });
-                },
                 backgroundColor: WidgetStateProperty.all(
                   const Color.fromARGB(255, 139, 142, 147),
                 ),
@@ -171,7 +83,7 @@ class _DisplayWidgetState extends State<DisplayWidget> {
                   const Padding(
                     padding: EdgeInsets.only(right: 4),
                     child: Text(
-                      "|",
+                      '|',
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 30,
@@ -181,27 +93,19 @@ class _DisplayWidgetState extends State<DisplayWidget> {
                   ),
                   IconButton(
                     icon: const Icon(Icons.navigation, color: Colors.white),
-                    onPressed: () {
-                      fetchLocation();
-                    },
+                    tooltip: 'Retry current location',
+                    onPressed: _fetchLocation,
                   ),
                 ],
               ),
             ),
           ),
         ),
-        body: Column(
+        body: TabBarView(
           children: [
-            // displayCurrentCoordinates(),
-            Expanded(
-              child: TabBarView(
-                children: [
-                  CurrentWeather(location: currentAddress.toString()),
-                  TodayWeather(location: buttonPressed),
-                  WeeklyWeather(location: buttonPressed),
-                ],
-              ),
-            ),
+            CurrentWeather(location: currentAddress),
+            TodayWeather(location: currentAddress),
+            WeeklyWeather(location: currentAddress),
           ],
         ),
         bottomNavigationBar: const Material(
